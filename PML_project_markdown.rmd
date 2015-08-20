@@ -1,0 +1,213 @@
+---
+title: "Predict the Exercies Manner with Accelerometers' Data"
+date: "19 August 2015"
+output:
+  html_document:
+    theme: cerulean
+---
+
+```{r echo=FALSE}
+
+```
+
+### Introduction:
+
+The goal of this project is to use the provided accelerometers'data of 6 participants to predict the 5 different type of exercise. Also, we should use the established prediction model to predict 20 different test cases.  More details of the data can be found from the website: http://groupware.les.inf.puc-rio.br/har 
+
+
+### Data loading:
+```{r echo=T}
+train = read.csv("pml-training.csv", stringsAsFactors=FALSE)
+test = read.csv("pml-testing.csv", stringsAsFactors=FALSE)
+dim(train)
+dim(test)
+```
+It is shown that there are 19,622 data, each have 160 variables in the training data set.  In the test set,  there are just about 20 data. The objective of this prediction is to predict the variable of "Classe" for the test set.
+
+### Exploratory data analysis:
+
+### A: preProcess 
+#### 1) Zero- and Near Zero-Variance Predictors
+```{r}
+library(caret)
+set.seed(123)
+# variables with near zero variance are eliminated
+# nsv = nearZeroVar(train, saveMetrics = TRUE)
+nsv2 = nearZeroVar(train)
+train_pre1 = train[, -nsv2]
+test_pre1 = test[, -nsv2]
+dim(test_pre1)
+dim(train_pre1)
+```
+After this transformation, the number of variables in each observation reduces from 160 to 100 (still including the dependent variable "classe").
+
+#### 2) data types
+```{r}
+# before imputation ,  3 types of predictors
+nn = names(train_pre1)
+wn =  which(lapply(train_pre1,class) %in% c("character"))  # 3 
+print(nn[wn])
+
+```
+
+```{r wn}
+# delete column of  "user_name" and "cvtd_timestamp"
+train_pre2 = train_pre1[, -wn[1:2]]
+test_pre2 = test_pre1[, -wn[1:2]]
+```
+"Character" predictor, such as "user_name", "cvtd_timestamp" should not be used as predictors and they are discarded. After this transformation, the number of variables in each observations reduces to from 100 to 98 (still including the dependent variable "classe").
+
+```{r numeric_col}
+nat = names(train_pre2); 
+numeric_col = nat[which(lapply(train_pre2,class) %in% c("numeric"))]  #62 columns
+integer_col = nat[which(lapply(train_pre2,class) %in% c("integer"))]  #35 columns
+```
+Columns with "integer" entries and columns with "numeric" entries are specified. One purpose of this procedure is to facilitate the following imputation which only applies to  continuous predictors(all columns of the data must be numeric).
+
+```{r na_column}
+#  check if there are NA columns in the integer_col set
+
+# Two functions used to find column full with (90%) NA or NAN
+fi = function(scaleValue){lenc = c(sum(is.na(scaleValue)),length(scaleValue))
+   return(lenc)
+   }				  
+
+indnna = function (train_pre2){   dimun = dim(train_pre2)
+    ind_nna = rep(0,dimun[2])
+	
+     for (k in 1:dimun[2]) {  ar = fi(train_pre2[,k])
+     ind_nna[k] = ar[1]/ar[2]
+     }
+	 return(ind_nna)
+}
+
+per90_int = which(indnna(train_pre2[, integer_col]) >= 0.9)
+integer_col_new = integer_col[-per90_int]                                #29 columns now!!
+
+#  delete column which contain 90% of NA or NAN in "integer_col"
+train_pre3 = train_pre2[ , -which(names(train_pre2) %in% c(integer_col[per90_int]))]
+test_pre3  = test_pre2[ , -which(names(train_pre2) %in% c(integer_col[per90_int]))]
+dim(train_pre3)
+```
+In this section, 6 "integer" predictors are deleted since their values are full of NAs or/and NAN, which could not be handled in imputation precedure followed. After this transformation, the number of variables in each observations reduces to from 98 to 92 (still including the dependent variable "classe").
+
+#### 3) Split train data into pseudo_train and pseudo_test sets
+```{r partition}
+#  split data into psedo_train data set  and psedo_test data set 
+
+itrain = createDataPartition(train_pre3$classe, p = 3/4)[[1]]
+pseudo_train = train_pre2[ itrain,]
+pseudo_test  = train_pre2[-itrain,]
+```
+"Train data" are partitioned into "pseudo train" and "pseud0 test" set.  The "pseudo train" set will be used to train the model, and further be validated with "pseudo test" set.
+
+#### 4) Imputation
+```{r imputation}
+# function: "Post_imputData" 
+# imputation method will only impute continuous predictors, the output are the list of resultant training and testing data set.
+
+Post_imputData = function (pseudo_train, pseudo_test, imp_cols, cols, imp_method) {
+
+    # imputation only works for continuours predictors 
+    prepr_model = preProcess(pseudo_train[, imp_cols], method = imp_method)
+	# combine imputed data (numerical data) with other data 
+    imp_training = cbind(predict(prepr_model, pseudo_train[, imp_cols]),pseudo_train[,cols], pseudo_train$classe)
+    names(imp_training)[ncol(imp_training)] <- "classe"  # rename last column as "classe"
+    imp_testing = cbind(predict(prepr_model, pseudo_test[, imp_cols]),pseudo_test[,cols],  pseudo_test$classe)
+    names(imp_testing)[ncol(imp_testing)] <- "classe"    # rename last column as "classe"
+    
+    remove("prepr_model")      # fo rmemory release purpose
+    return(list(imp_training, imp_testing))
+} 
+```
+
+There are still lot of NAs in our data and imputation is the process of replacing missing data with substituted values. Here "knnImpute" is used, also there are other choices, such as bagged trees method "bagImpute" or "meanImpute".
+After imputation for numeric data columns, the data set is augmented with the rest columns of data. It should be noted that the first 4 entries in integer_col_new is not good as predictors, so they are not included in the final data. The number of variables in each observations reduces to from 92 to 88 (including the dependent variable "classe").The resultant data will be used in training model.
+
+The discarded four predictors' names are: 
+```{r four_del}
+integer_col_new[c(1:4)]
+```
+
+```{r post_imput}
+idata = Post_imputData(pseudo_train, pseudo_test, numeric_col, integer_col_new[-c(1:4)], "knnImpute") 
+imp_training = idata[[1]]
+ imp_testing = idata[[2]]
+ dim(imp_training)
+ dim(imp_testing)
+ 
+```
+
+### B: Predictive model
+In this section,  "Random Forest" method is used in our training and prediction purpose. The reason for choosing "Random Forest" is its relatively good accuracy, robustness and ease of use.
+
+#### 5)random forest model (with cross validation) 
+```{r random_forest}
+# cross validation (number = 3)
+
+  Fullmodel_knni_rf_cv = train(imp_training$classe ~., trControl = trainControl(method ="cv", number = 3),method="rf",data =imp_training, importance=TRUE)
+
+conf_rf_cv = confusionMatrix(predict(Fullmodel_knni_rf_cv, newdata=imp_testing), imp_testing$classe)
+print(Fullmodel_knni_rf_cv, digits=3)
+print(Fullmodel_knni_rf_cv$finalModel, digits=3)
+print(conf_rf_cv)
+```
+
+```{r plot1}
+# important predictors for evaluation !!
+impf = varImp(Fullmodel_knni_rf_cv$finalModel)
+impf$name = rownames(impf)
+imm = melt(impf[1:8,], id = "name")
+library(ggplot2) 
+plot1 = ggplot(imm, aes(x=variable, y=value, fill=name)) +
+     labs(x="classe", y="importance value") +
+    geom_bar(position="dodge", stat="identity")
+plot1
+```   
+
+In this plot, it is shown that "roll_belt" and "yaw_belt" are the first two most important predictors/variables in this model.  
+
+```{r plot2}
+# visualization of the whole training data with the first two most important variables as x, y axies.                                  
+qplot(roll_belt, pitch_belt,main ="Plot of training data with predictors(roll_belt & yaw_belt)", data = imp_training, color = classe)
+```
+
+From the visualization of training data using only 2 most important attributes obtained from aboved model ("roll_belt" and "yaw_belt"), we can realize that how complicated these data are(highly tangled, dispersed and haphazard). That is where the powerful "random forest" method come in to play.
+
+It turns out that "rf" model do a great job and the out of sample error is calculated as follow:
+```{r error}
+accrate = conf_rf_cv$overall[1]
+out_of_sample_error = 1- accrate; names(out_of_sample_error)= "error"
+out_of_sample_error
+```
+
+#### 6)random forest model(with cross validation), only numeric data used
+```{r rf_numeric}
+# Only numeric predictor used !
+idata = Post_imputData(pseudo_train, pseudo_test, numeric_col, NULL, "knnImpute") 
+imp_training = idata[[1]]
+ imp_testing = idata[[2]]
+
+# rf with cross validation 
+# due to constraint of time, here number of cross validation is set to 3. Also "repeatedcv" instead of "cv" may be worth to try.
+model_knni_rf_cv = train(imp_training$classe ~., trControl = trainControl(method ="cv", number = 3),method="rf",data =imp_training)
+conf_rf_cv = confusionMatrix(predict(model_knni_rf_cv, newdata=imp_testing), imp_testing$classe)
+print(model_knni_rf_cv$finalModel, digits=3)
+print(conf_rf_cv)
+```
+From this result, we can see if we only use numeric predictors, the classification result are quite close which implies that most the important predictors are numeric variables. 
+
+#### C: Classification on Test set
+We can use model built in section 5) to do the classification 
+```{r Test_set}
+prepr_model = preProcess(pseudo_train[, numeric_col], method ="knnImpute")
+pred = predict(prepr_model, test_pre3[, numeric_col])
+rest = test_pre3[,integer_col_new[-c(1:4)]]
+real_testing = cbind(pred,rest)
+predict(Fullmodel_knni_rf_cv$finalModel,real_testing)
+```
+### Conclusion:
+
+Random forest performs very well for this set of data. Using the model built in 5) ,the classification result on test set are 100% correct!
+Also it is worth to implement and compare this result with other methods like SVM, KNN and combining preditors(ensembles), such as "gbm". 
+
