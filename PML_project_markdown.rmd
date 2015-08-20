@@ -154,22 +154,22 @@ print(conf_rf_cv)
 ```
 
 ```{r plot1}
+library(ggplot2) 
+library(reshape)
 # important predictors for evaluation !!
 impf = varImp(Fullmodel_knni_rf_cv$finalModel)
 impf$name = rownames(impf)
 imm = melt(impf[1:8,], id = "name")
-library(ggplot2) 
 plot1 = ggplot(imm, aes(x=variable, y=value, fill=name)) +
      labs(x="classe", y="importance value") +
     geom_bar(position="dodge", stat="identity")
 plot1
 ```   
-
-In this plot, it is shown that "roll_belt" and "yaw_belt" are the first two most important predictors/variables in this model.  
+In this plot, it is shown that for almost all five "classe", "roll_belt" and "yaw_belt" are two most important predictors/variables.  
 
 ```{r plot2}
 # visualization of the whole training data with the first two most important variables as x, y axies.                                  
-qplot(roll_belt, pitch_belt,main ="Plot of training data with predictors(roll_belt & yaw_belt)", data = imp_training, color = classe)
+qplot(roll_belt, yaw_belt,main ="Plot of training data with predictors(roll_belt & yaw_belt)", data = imp_training, color = classe)
 ```
 
 From the visualization of training data using only 2 most important attributes obtained from aboved model ("roll_belt" and "yaw_belt"), we can realize that how complicated these data are(highly tangled, dispersed and haphazard). That is where the powerful "random forest" method come in to play.
